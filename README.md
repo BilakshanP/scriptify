@@ -114,15 +114,3 @@ Share a single-file script
 ```bash
 scriptify src/main.rs script.rs --auto-zscript
 ```
-
-Run immediately
-
-```bash
-scriptify src/main.rs --auto-zscript | bash
-```
-
-Prepare code for review
-
-```bash
-scriptify src/lib.rs out.rs
-```
