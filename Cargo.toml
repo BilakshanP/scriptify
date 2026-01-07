@@ -1,0 +1,10 @@
+[package]
+name = "scriptify"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+arborium = { version = "2.6", features = ["lang-rust"] }
+clap = { version = "4.5.4", features = ["derive"] }
+prettyplease = "0.2.37"
+syn-inline-mod = "0.6.0"
