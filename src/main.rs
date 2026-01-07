@@ -9,6 +9,12 @@ use std::{
 };
 use syn_inline_mod::InlinerBuilder;
 
+// TODO: Hide this behind a feature flag, and make it more customizable.
+// Currently these are just some sane flags which should work for everybody.
+const SHEBANG_PREFIX: &str = "#!/usr/bin/env -S";
+const SHEBANG_ENV_VARS: &str = "RUSTC_BOOTSTRAP=1 RUSTFLAGS=-Coverflow-checks";
+const SHEBANG_CARGO: &str = "cargo run -qZscript --release --manifest-path";
+
 /* ---------- CLI ---------- */
 
 #[derive(Parser)]
@@ -186,7 +192,7 @@ fn main() {
     let manifest_src = std::fs::read_to_string(&manifest).expect("Failed to read Cargo.toml");
 
     // manifest: NEVER colored
-    println!("#!/usr/bin/env -S cargo run -qZscript --release --manifest-path");
+    println!("{} {} {}", SHEBANG_PREFIX, SHEBANG_ENV_VARS, SHEBANG_CARGO);
     println!("---cargo");
     print!("{manifest_src}");
     if !manifest_src.ends_with('\n') {
