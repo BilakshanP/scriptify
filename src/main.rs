@@ -1,209 +1,197 @@
-use arborium::{
-    AnsiHighlighter,
-    theme::{Theme, builtin},
-};
+use arborium::{AnsiHighlighter, theme::builtin};
 use clap::Parser;
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 use syn_inline_mod::InlinerBuilder;
 
-// TODO: Hide this behind a feature flag, and make it more customizable.
-// Currently these are just some sane flags which should work for everybody.
-const SHEBANG_PREFIX: &str = "#!/usr/bin/env -S";
-const SHEBANG_ENV_VARS: &str = "RUSTC_BOOTSTRAP=1 RUSTFLAGS=-Coverflow-checks";
-const SHEBANG_CARGO: &str = "cargo run -qZscript --release --manifest-path";
-
-/* ---------- CLI ---------- */
-
+/// Inline Rust modules with optional syntax highlighting and cargo-script support
 #[derive(Parser)]
-#[command(name = "inline-mod")]
-#[command(about = "Inline Rust modules with optional syntax highlighting")]
+#[command(version, about, long_about = None)]
 struct Cli {
+    /// Input Rust source file
     input: Option<PathBuf>,
+
+    /// Output file (defaults to stdout)
+    #[arg(short, long)]
     output: Option<PathBuf>,
 
-    #[arg(short = 't', long = "theme", default_value = "Monokai")]
-    theme: String,
+    /// Enable syntax highlighting with specified theme
+    #[arg(short, long)]
+    theme: Option<String>,
 
-    #[arg(long = "no-color")]
-    no_color: bool,
-
-    #[arg(long = "list-themes")]
+    /// List all available themes
+    #[arg(long)]
     list_themes: bool,
 
-    #[arg(short = 'm', long = "manifest-path")]
-    zscript_manifest: Option<PathBuf>,
+    /// Path to Cargo.toml for cargo-script generation
+    #[arg(short = 'm', long)]
+    manifest: Option<PathBuf>,
 
-    #[arg(long = "auto-zscript")]
-    auto_zscript: bool,
+    /// Auto-discover Cargo.toml from input file location
+    #[arg(short = 'z', long)]
+    zscript: bool,
+
+    /// Stop searching for Cargo.toml at current working directory
+    #[arg(long, requires = "zscript")]
+    stop_at_cwd: bool,
 }
-
-/* ---------- Themes ---------- */
-
-fn build_theme_map() -> HashMap<String, Theme> {
-    builtin::all()
-        .into_iter()
-        .map(|t| (t.name.clone(), t.clone()))
-        .collect()
-}
-
-fn list_themes_and_exit() -> ! {
-    println!("Available themes:");
-    for t in builtin::all() {
-        println!("  - {}", t.name);
-    }
-    std::process::exit(0)
-}
-
-/* ---------- Zscript ---------- */
-
-fn find_manifest_from(start: &Path, stop: &Path) -> Option<PathBuf> {
-    let mut cur = start.canonicalize().ok()?;
-    let stop = stop.canonicalize().ok()?;
-
-    loop {
-        let cand = cur.join("Cargo.toml");
-        if cand.exists() {
-            return Some(cand);
-        }
-        if cur == stop || !cur.pop() {
-            break;
-        }
-    }
-    None
-}
-
-fn resolve_zscript_manifest(cli: &Cli, input: &Path) -> Option<PathBuf> {
-    if let Some(p) = &cli.zscript_manifest {
-        return Some(p.clone());
-    }
-
-    if cli.auto_zscript {
-        let start = input.parent().unwrap_or(Path::new("."));
-        let stop = std::env::current_dir().unwrap();
-        return find_manifest_from(start, &stop);
-    }
-
-    None
-}
-
-fn build_zscript(manifest: &Path, body: &str) -> String {
-    let manifest_src = std::fs::read_to_string(manifest).expect("Failed to read Cargo.toml");
-
-    let mut buf = String::new();
-    buf.push_str("#!/usr/bin/env -S cargo run -qZscript --release --manifest-path\n");
-    buf.push_str("---cargo\n");
-    buf.push_str(&manifest_src);
-    if !manifest_src.ends_with('\n') {
-        buf.push('\n');
-    }
-    buf.push_str("---\n\n");
-    buf.push_str(body);
-    buf
-}
-
-/* ---------- Core ---------- */
-
-fn require_input(cli: &Cli) -> PathBuf {
-    cli.input.clone().unwrap_or_else(|| {
-        eprintln!("Error: <INPUT> is required");
-        std::process::exit(1);
-    })
-}
-
-fn inline_and_format(input: &Path) -> String {
-    let res = InlinerBuilder::default()
-        .parse_and_inline_modules(input)
-        .unwrap_or_else(|e| {
-            eprintln!("{e}");
-            std::process::exit(1);
-        });
-
-    prettyplease::unparse(res.output())
-}
-
-/* ---------- Coloring ---------- */
-
-fn colorize(theme: &str, src: &str) -> String {
-    let theme = build_theme_map()
-        .get(theme)
-        .unwrap_or_else(|| {
-            eprintln!("Unknown theme: {theme}");
-            std::process::exit(1);
-        })
-        .clone();
-
-    let mut hl = AnsiHighlighter::new(theme);
-    hl.highlight("rust", src)
-        .unwrap_or_else(|_| src.to_string())
-}
-
-/* ---------- Output ---------- */
-
-fn write_file(path: &Path, content: &str) {
-    std::fs::write(path, content).unwrap();
-}
-
-fn stdout_plain(text: &str) {
-    println!("{text}");
-}
-
-fn stdout_colored(text: &str, theme: &str) {
-    println!("{}", colorize(theme, text));
-}
-
-/* ---------- Main ---------- */
 
 fn main() {
     let cli = Cli::parse();
 
     if cli.list_themes {
-        list_themes_and_exit();
-    }
-
-    let input = require_input(&cli);
-    let body = inline_and_format(&input);
-    let zscript_manifest = resolve_zscript_manifest(&cli, &input);
-    let zscript = zscript_manifest.is_some();
-
-    /* ---- output file path ---- */
-    if let Some(out) = &cli.output {
-        if let Some(manifest) = zscript_manifest {
-            let full = build_zscript(&manifest, &body);
-            write_file(out, &full);
-        } else {
-            write_file(out, &body);
-        }
+        list_themes();
         return;
     }
 
-    /* ---- stdout path ---- */
-
-    if !zscript {
-        // hard error: stdout + colorization is forbidden
-        eprintln!("Error: stdout without zscript is not allowed (use --output)");
+    let input = cli.input.as_ref().unwrap_or_else(|| {
+        eprintln!("error: <INPUT> is required");
         std::process::exit(1);
+    });
+
+    let code = inline_modules(input);
+    let manifest = resolve_manifest(&cli, input);
+
+    if let Some(out_path) = &cli.output {
+        write_output(out_path, &code, manifest.as_deref());
+    } else {
+        print_to_stdout(&cli, &code, manifest.as_deref());
+    }
+}
+
+fn list_themes() {
+    println!("Available themes:");
+    for theme in builtin::all() {
+        println!("  {}", theme.name);
+    }
+}
+
+fn inline_modules(input: &Path) -> String {
+    let result = InlinerBuilder::default()
+        .parse_and_inline_modules(input)
+        .unwrap_or_else(|e| {
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        });
+
+    prettyplease::unparse(result.output())
+}
+
+fn resolve_manifest(cli: &Cli, input: &Path) -> Option<PathBuf> {
+    if let Some(manifest) = &cli.manifest {
+        return Some(manifest.clone());
     }
 
-    // zscript + stdout
-    let manifest = zscript_manifest.unwrap();
-    let manifest_src = std::fs::read_to_string(&manifest).expect("Failed to read Cargo.toml");
+    if cli.zscript {
+        let input_abs = input.canonicalize().ok()?;
+        let search_from = input_abs.parent()?;
+        let stop_at = cli
+            .stop_at_cwd
+            .then(|| std::env::current_dir().ok())
+            .flatten();
 
-    // manifest: NEVER colored
-    println!("{} {} {}", SHEBANG_PREFIX, SHEBANG_ENV_VARS, SHEBANG_CARGO);
+        return find_cargo_toml(search_from, stop_at.as_deref());
+    }
+
+    None
+}
+
+fn find_cargo_toml(mut current: &Path, stop_at: Option<&Path>) -> Option<PathBuf> {
+    loop {
+        let manifest = current.join("Cargo.toml");
+        if manifest.exists() {
+            return Some(manifest);
+        }
+
+        if stop_at.is_some_and(|stop| stop == current) {
+            return None;
+        }
+
+        current = current.parent()?;
+    }
+}
+
+fn write_output(path: &Path, code: &str, manifest: Option<&Path>) {
+    let content = if let Some(m) = manifest {
+        build_cargo_script(m, code)
+    } else {
+        code.to_string()
+    };
+
+    std::fs::write(path, content).unwrap_or_else(|e| {
+        eprintln!("error: failed to write to {}: {e}", path.display());
+        std::process::exit(1);
+    });
+}
+
+fn print_to_stdout(cli: &Cli, code: &str, manifest: Option<&Path>) {
+    if let Some(m) = manifest {
+        print_cargo_script_header(m);
+        if let Some(theme) = &cli.theme {
+            print_code(code, theme);
+        } else {
+            print!("{code}");
+        }
+    } else if let Some(theme) = &cli.theme {
+        print_code(code, theme);
+    } else {
+        print!("{code}");
+    }
+}
+
+fn print_cargo_script_header(manifest: &Path) {
+    let content = std::fs::read_to_string(manifest).unwrap_or_else(|e| {
+        eprintln!("error: failed to read manifest: {e}");
+        std::process::exit(1);
+    });
+
+    println!(
+        "#!/usr/bin/env -S RUSTC_BOOTSTRAP=1 RUSTFLAGS=-Coverflow-checks cargo run -qZscript --release --manifest-path"
+    );
     println!("---cargo");
-    print!("{manifest_src}");
-    if !manifest_src.ends_with('\n') {
+    print!("{content}");
+    if !content.ends_with('\n') {
         println!();
     }
     println!("---\n");
+}
 
-    // body: colorized unless explicitly disabled
-    if cli.no_color {
-        stdout_plain(&body);
-    } else {
-        stdout_colored(&body, &cli.theme);
+fn print_code(code: &str, theme: &str) {
+    let highlighted = highlight_code(code, theme);
+    print!("{highlighted}");
+}
+
+fn highlight_code(code: &str, theme_name: &str) -> String {
+    let themes: std::collections::HashMap<_, _> = builtin::all()
+        .into_iter()
+        .map(|t| (t.name.to_lowercase(), t))
+        .collect();
+
+    let theme = themes.get(&theme_name.to_lowercase()).unwrap_or_else(|| {
+        eprintln!("error: unknown theme '{theme_name}'");
+        eprintln!("hint: use --list-themes to see available themes");
+        std::process::exit(1);
+    });
+
+    let mut highlighter = AnsiHighlighter::new(theme.clone());
+    highlighter
+        .highlight("rust", code)
+        .unwrap_or_else(|_| code.to_string())
+}
+
+fn build_cargo_script(manifest: &Path, code: &str) -> String {
+    let manifest_content = std::fs::read_to_string(manifest).unwrap_or_else(|e| {
+        eprintln!("error: failed to read manifest: {e}");
+        std::process::exit(1);
+    });
+
+    let mut script = String::new();
+    script.push_str("#!/usr/bin/env -S RUSTC_BOOTSTRAP=1 RUSTFLAGS=-Coverflow-checks cargo run -qZscript --release --manifest-path\n");
+    script.push_str("---cargo\n");
+    script.push_str(&manifest_content);
+    if !manifest_content.ends_with('\n') {
+        script.push('\n');
     }
+    script.push_str("---\n\n");
+    script.push_str(code);
+    script
 }
