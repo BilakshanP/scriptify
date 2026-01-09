@@ -111,12 +111,7 @@ fn find_cargo_toml(mut current: &Path, stop_at: Option<&Path>) -> Option<PathBuf
 }
 
 fn write_output(path: &Path, code: &str, manifest: Option<&Path>) {
-    let content = if let Some(m) = manifest {
-        build_cargo_script(m, code)
-    } else {
-        code.to_string()
-    };
-
+    let content = format_output(code, manifest);
     std::fs::write(path, content).unwrap_or_else(|e| {
         eprintln!("error: failed to write to {}: {e}", path.display());
         std::process::exit(1);
@@ -124,40 +119,30 @@ fn write_output(path: &Path, code: &str, manifest: Option<&Path>) {
 }
 
 fn print_to_stdout(cli: &Cli, code: &str, manifest: Option<&Path>) {
-    if let Some(m) = manifest {
-        print_cargo_script_header(m);
-        if let Some(theme) = &cli.theme {
-            print_code(code, theme);
-        } else {
-            print!("{code}");
-        }
-    } else if let Some(theme) = &cli.theme {
-        print_code(code, theme);
-    } else {
-        print!("{code}");
+    let code = apply_syntax_highlighting(code, cli.theme.as_deref());
+    let output = format_output(&code, manifest);
+    print!("{output}");
+}
+
+fn format_output(code: &str, manifest: Option<&Path>) -> String {
+    match manifest {
+        Some(m) => build_cargo_script(m, code),
+        None => code.to_string(),
     }
 }
 
-fn print_cargo_script_header(manifest: &Path) {
-    let content = std::fs::read_to_string(manifest).unwrap_or_else(|e| {
+fn apply_syntax_highlighting(code: &str, theme: Option<&str>) -> String {
+    match theme {
+        Some(t) => highlight_code(code, t),
+        None => code.to_string(),
+    }
+}
+
+fn read_manifest(manifest: &Path) -> String {
+    std::fs::read_to_string(manifest).unwrap_or_else(|e| {
         eprintln!("error: failed to read manifest: {e}");
         std::process::exit(1);
-    });
-
-    println!(
-        "#!/usr/bin/env -S RUSTC_BOOTSTRAP=1 RUSTFLAGS=-Coverflow-checks cargo run -qZscript --release --manifest-path"
-    );
-    println!("---cargo");
-    print!("{content}");
-    if !content.ends_with('\n') {
-        println!();
-    }
-    println!("---\n");
-}
-
-fn print_code(code: &str, theme: &str) {
-    let highlighted = highlight_code(code, theme);
-    print!("{highlighted}");
+    })
 }
 
 fn highlight_code(code: &str, theme_name: &str) -> String {
@@ -179,18 +164,17 @@ fn highlight_code(code: &str, theme_name: &str) -> String {
 }
 
 fn build_cargo_script(manifest: &Path, code: &str) -> String {
-    let manifest_content = std::fs::read_to_string(manifest).unwrap_or_else(|e| {
-        eprintln!("error: failed to read manifest: {e}");
-        std::process::exit(1);
-    });
-
+    let manifest_content = read_manifest(manifest);
     let mut script = String::new();
+
     script.push_str("#!/usr/bin/env -S RUSTC_BOOTSTRAP=1 RUSTFLAGS=-Coverflow-checks cargo run -qZscript --release --manifest-path\n");
     script.push_str("---cargo\n");
     script.push_str(&manifest_content);
+
     if !manifest_content.ends_with('\n') {
         script.push('\n');
     }
+
     script.push_str("---\n\n");
     script.push_str(code);
     script
