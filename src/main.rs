@@ -3,6 +3,8 @@ use clap::Parser;
 use std::path::{Path, PathBuf};
 use syn_inline_mod::InlinerBuilder;
 
+const DEFAULT_SHEBANG: &str = "#!/usr/bin/env -S RUSTC_BOOTSTRAP=1 RUSTFLAGS=-Coverflow-checks cargo run -qZscript --release --manifest-path";
+
 /// Inline Rust modules with optional syntax highlighting and cargo-script support
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -163,11 +165,17 @@ fn highlight_code(code: &str, theme_name: &str) -> String {
         .unwrap_or_else(|_| code.to_string())
 }
 
+fn get_shebang() -> String {
+    std::env::var("SCRIPTIFY_SHEBANG").unwrap_or_else(|_| DEFAULT_SHEBANG.to_string())
+}
+
 fn build_cargo_script(manifest: &Path, code: &str) -> String {
     let manifest_content = read_manifest(manifest);
+    let shebang = get_shebang();
     let mut script = String::new();
 
-    script.push_str("#!/usr/bin/env -S RUSTC_BOOTSTRAP=1 RUSTFLAGS=-Coverflow-checks cargo run -qZscript --release --manifest-path\n");
+    script.push_str(&shebang);
+    script.push('\n');
     script.push_str("---cargo\n");
     script.push_str(&manifest_content);
 

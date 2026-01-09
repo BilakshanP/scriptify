@@ -162,6 +162,13 @@ chmod +x script.rs
 scriptify src/lib.rs -t github-light | less -R
 ```
 
+### Example $: Customized SHEBANG
+
+```bash
+# Modify the shebang paramaters
+SCRIPTIFY_SHEBANG="#!/usr/bin/env -S cargo +nightly -zScript" scriptify file.rs
+```
+
 ## Available Themes
 
 Run `scriptify --list-themes` for the complete list.
