@@ -57,6 +57,14 @@ scriptify --list-themes
 
 ### Cargo Script Generation
 
+Automatically convert a whole project into a script:
+
+```bash
+scriptify . -z
+```
+
+Note: `CWD` should contain `Cargo.toml` file.
+
 Generate a cargo-script (RFC 3424) with auto-discovered `Cargo.toml`:
 
 ```bash
