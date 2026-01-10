@@ -11,7 +11,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
-    /// Input Rust source file
+    /// Input Rust source file or directory (use "." for current directory)
     input: Option<PathBuf>,
 
     /// Output file (defaults to stdout)
@@ -56,10 +56,11 @@ fn main() {
 }
 
 fn run(cli: &Cli) -> Result<()> {
-    let input = cli.input.as_ref().ok_or("<INPUT> is required")?;
+    let input_path = cli.input.as_ref().ok_or("<INPUT> is required")?;
+    let input = resolve_input_path(input_path)?;
 
-    let code = inline_modules(input)?;
-    let manifest = resolve_manifest(cli, input)?;
+    let code = inline_modules(&input)?;
+    let manifest = resolve_manifest(cli, &input)?;
     let output_content = prepare_output(&code, cli.theme.as_deref(), manifest.as_deref())?;
 
     if let Some(out_path) = &cli.output {
@@ -69,6 +70,71 @@ fn run(cli: &Cli) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn resolve_input_path(input: &Path) -> Result<PathBuf> {
+    if !input.is_dir() {
+        return Ok(input.to_path_buf());
+    }
+
+    // If input is a directory, find Cargo.toml and determine entry point
+    let manifest_path = input.join("Cargo.toml");
+    if !manifest_path.exists() {
+        return Err(format!("No Cargo.toml found in directory: {}", input.display()).into());
+    }
+
+    let manifest_content = std::fs::read_to_string(&manifest_path)?;
+    let entry_point = parse_entry_point(&manifest_content, input)?;
+
+    Ok(entry_point)
+}
+
+fn parse_entry_point(manifest_content: &str, base_dir: &Path) -> Result<PathBuf> {
+    let manifest: toml::Value = toml::from_str(manifest_content)?;
+
+    // Check for [[bin]] entries first
+    if let Some(bins) = manifest.get("bin").and_then(|b| b.as_array())
+        && let Some(first_bin) = bins.first()
+        && let Some(path) = first_bin.get("path").and_then(|p| p.as_str())
+    {
+        return Ok(base_dir.join(path));
+    }
+
+    // Check for single [bin] entry
+    if let Some(bin) = manifest.get("bin").and_then(|b| b.as_table())
+        && let Some(path) = bin.get("path").and_then(|p| p.as_str())
+    {
+        return Ok(base_dir.join(path));
+    }
+
+    // Check for lib
+    if let Some(lib) = manifest.get("lib") {
+        if let Some(path) = lib.get("path").and_then(|p| p.as_str()) {
+            return Ok(base_dir.join(path));
+        }
+        // Default lib path
+        let lib_path = base_dir.join("src/lib.rs");
+        if lib_path.exists() {
+            return Ok(lib_path);
+        }
+    }
+
+    // Default: check for src/main.rs (binary crate default)
+    let main_path = base_dir.join("src/main.rs");
+    if main_path.exists() {
+        return Ok(main_path);
+    }
+
+    // Fallback: check for src/lib.rs
+    let lib_path = base_dir.join("src/lib.rs");
+    if lib_path.exists() {
+        return Ok(lib_path);
+    }
+
+    Err(
+        "Could not determine entry point from Cargo.toml. No src/main.rs or src/lib.rs found."
+            .into(),
+    )
 }
 
 fn list_themes() {
