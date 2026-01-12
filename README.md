@@ -57,6 +57,12 @@ scriptify --list-themes
 
 ### Cargo Script Generation
 
+Generate script with an empty manifest:
+
+```bash
+scriptify file.rs -e
+```
+
 Automatically convert a whole project into a script:
 
 ```bash

@@ -37,6 +37,10 @@ struct Cli {
     /// Stop searching for Cargo.toml at current working directory
     #[arg(long, requires = "zscript")]
     stop_at_cwd: bool,
+
+    /// Generate cargo-script with empty manifest
+    #[arg(short = 'e', long, conflicts_with_all = ["manifest", "zscript"])]
+    empty_manifest: bool,
 }
 
 fn main() {
@@ -61,7 +65,7 @@ fn run(cli: &Cli) -> Result<()> {
 
     let code = inline_modules(&input)?;
     let manifest = resolve_manifest(cli, &input)?;
-    let output_content = prepare_output(&code, cli.theme.as_deref(), manifest.as_deref())?;
+    let output_content = prepare_output(&code, cli.theme.as_deref(), manifest)?;
 
     if let Some(out_path) = &cli.output {
         std::fs::write(out_path, output_content)?;
@@ -150,9 +154,19 @@ fn inline_modules(input: &Path) -> Result<String> {
     Ok(prettyplease::unparse(result.output()))
 }
 
-fn resolve_manifest(cli: &Cli, input: &Path) -> Result<Option<PathBuf>> {
+enum ManifestOption {
+    Path(PathBuf),
+    Empty,
+    None,
+}
+
+fn resolve_manifest(cli: &Cli, input: &Path) -> Result<ManifestOption> {
+    if cli.empty_manifest {
+        return Ok(ManifestOption::Empty);
+    }
+
     if let Some(manifest) = &cli.manifest {
-        return Ok(Some(manifest.clone()));
+        return Ok(ManifestOption::Path(manifest.clone()));
     }
 
     if cli.zscript {
@@ -165,10 +179,12 @@ fn resolve_manifest(cli: &Cli, input: &Path) -> Result<Option<PathBuf>> {
             .then(|| std::env::current_dir().ok())
             .flatten();
 
-        return Ok(find_cargo_toml(search_from, stop_at.as_deref()));
+        if let Some(manifest) = find_cargo_toml(search_from, stop_at.as_deref()) {
+            return Ok(ManifestOption::Path(manifest));
+        }
     }
 
-    Ok(None)
+    Ok(ManifestOption::None)
 }
 
 fn find_cargo_toml(mut current: &Path, stop_at: Option<&Path>) -> Option<PathBuf> {
@@ -186,7 +202,7 @@ fn find_cargo_toml(mut current: &Path, stop_at: Option<&Path>) -> Option<PathBuf
     }
 }
 
-fn prepare_output(code: &str, theme: Option<&str>, manifest: Option<&Path>) -> Result<String> {
+fn prepare_output(code: &str, theme: Option<&str>, manifest: ManifestOption) -> Result<String> {
     let highlighted_code = apply_syntax_highlighting(code, theme)?;
     format_output(&highlighted_code, manifest)
 }
@@ -198,10 +214,11 @@ fn apply_syntax_highlighting(code: &str, theme: Option<&str>) -> Result<String> 
     }
 }
 
-fn format_output(code: &str, manifest: Option<&Path>) -> Result<String> {
+fn format_output(code: &str, manifest: ManifestOption) -> Result<String> {
     match manifest {
-        Some(m) => build_cargo_script(m, code),
-        None => Ok(code.to_string()),
+        ManifestOption::Path(ref path) => build_cargo_script_with_manifest(path, code),
+        ManifestOption::Empty => Ok(build_cargo_script_empty(code)),
+        ManifestOption::None => Ok(code.to_string()),
     }
 }
 
@@ -229,7 +246,21 @@ fn get_shebang() -> String {
     std::env::var("SCRIPTIFY_SHEBANG").unwrap_or_else(|_| DEFAULT_SHEBANG.to_string())
 }
 
-fn build_cargo_script(manifest: &Path, code: &str) -> Result<String> {
+fn build_cargo_script_empty(code: &str) -> String {
+    let shebang = get_shebang();
+    let mut script = String::new();
+
+    script.push_str(&shebang);
+    script.push('\n');
+    script.push_str("---cargo\n");
+    script.push_str("[dependencies]\n");
+    script.push_str("---\n\n");
+    script.push_str(code);
+
+    script
+}
+
+fn build_cargo_script_with_manifest(manifest: &Path, code: &str) -> Result<String> {
     let manifest_content = read_manifest(manifest)?;
     let shebang = get_shebang();
     let mut script = String::new();
