@@ -19,7 +19,8 @@ struct Cli {
     output: Option<PathBuf>,
 
     /// Enable syntax highlighting with specified theme
-    #[arg(short, long)]
+    /// NOTE: cannot be used together with --output because highlighting writes ANSI escapes which would corrupt output files
+    #[arg(short, long, conflicts_with = "output")]
     theme: Option<String>,
 
     /// List all available themes
