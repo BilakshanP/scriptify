@@ -102,6 +102,14 @@ chmod +x script.rs
 ./script.rs
 ```
 
+**Note:** If your script accepts arguments, you must separate them with `--` so they aren't passed to `cargo` itself:
+
+```bash
+./script.rs -- --my-flag value
+```
+
+Without `--`, arguments like `--my-flag` would be interpreted by `cargo` rather than your program.
+
 ### Advanced Options
 
 Stop manifest search at current working directory:
@@ -176,10 +184,10 @@ chmod +x script.rs
 scriptify src/lib.rs -t github-light | less -R
 ```
 
-### Example $: Customized SHEBANG
+### Example 4: Customized SHEBANG
 
 ```bash
-# Modify the shebang paramaters
+# Modify the shebang parameters
 SCRIPTIFY_SHEBANG="#!/usr/bin/env -S cargo +nightly -zScript" scriptify file.rs
 ```
 
