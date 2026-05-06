@@ -69,7 +69,8 @@ fn run(cli: &Cli) -> Result<()> {
     let output_content = prepare_output(&code, cli.theme.as_deref(), manifest)?;
 
     if let Some(out_path) = &cli.output {
-        std::fs::write(out_path, output_content)?;
+        std::fs::write(out_path, output_content)
+            .map_err(|e| format!("failed to write '{}': {e}", out_path.display()))?;
     } else {
         print!("{output_content}");
     }
@@ -88,7 +89,8 @@ fn resolve_input_path(input: &Path) -> Result<PathBuf> {
         return Err(format!("No Cargo.toml found in directory: {}", input.display()).into());
     }
 
-    let manifest_content = std::fs::read_to_string(&manifest_path)?;
+    let manifest_content = std::fs::read_to_string(&manifest_path)
+        .map_err(|e| format!("failed to read '{}': {e}", manifest_path.display()))?;
     let entry_point = parse_entry_point(&manifest_content, input)?;
 
     Ok(entry_point)
@@ -150,7 +152,9 @@ fn list_themes() {
 }
 
 fn inline_modules(input: &Path) -> Result<String> {
-    let result = InlinerBuilder::default().parse_and_inline_modules(input)?;
+    let result = InlinerBuilder::default()
+        .parse_and_inline_modules(input)
+        .map_err(|e| format!("failed to inline modules from '{}': {e}", input.display()))?;
 
     Ok(prettyplease::unparse(result.output()))
 }
@@ -171,7 +175,8 @@ fn resolve_manifest(cli: &Cli, input: &Path) -> Result<ManifestOption> {
     }
 
     if cli.zscript {
-        let input_abs = input.canonicalize()?;
+        let input_abs = input.canonicalize()
+            .map_err(|e| format!("failed to resolve path '{}': {e}", input.display()))?;
         let search_from = input_abs
             .parent()
             .ok_or("Input file has no parent directory")?;
@@ -224,20 +229,22 @@ fn format_output(code: &str, manifest: ManifestOption) -> Result<String> {
 }
 
 fn read_manifest(manifest: &Path) -> Result<String> {
-    Ok(std::fs::read_to_string(manifest)?)
+    std::fs::read_to_string(manifest)
+        .map_err(|e| format!("failed to read manifest '{}': {e}", manifest.display()).into())
+}
+
+fn find_theme(name: &str) -> Result<arborium::theme::Theme> {
+    builtin::all()
+        .into_iter()
+        .find(|t| t.name.eq_ignore_ascii_case(name))
+        .ok_or_else(|| {
+            format!("unknown theme '{name}'. Use --list-themes to see available themes").into()
+        })
 }
 
 fn highlight_code(code: &str, theme_name: &str) -> Result<String> {
-    let themes: std::collections::HashMap<_, _> = builtin::all()
-        .into_iter()
-        .map(|t| (t.name.to_lowercase(), t))
-        .collect();
-
-    let theme = themes.get(&theme_name.to_lowercase()).ok_or_else(|| {
-        format!("unknown theme '{theme_name}'. Use --list-themes to see available themes")
-    })?;
-
-    let mut highlighter = AnsiHighlighter::new(theme.clone());
+    let theme = find_theme(theme_name)?;
+    let mut highlighter = AnsiHighlighter::new(theme);
     Ok(highlighter
         .highlight("rust", code)
         .unwrap_or_else(|_| code.to_string()))

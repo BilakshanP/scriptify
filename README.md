@@ -209,6 +209,7 @@ Options:
       --list-themes          List all available themes
   -m, --manifest <MANIFEST>  Path to Cargo.toml for cargo-script generation
   -z, --zscript              Auto-discover Cargo.toml from input file location
+  -e, --empty-manifest       Generate cargo-script with empty manifest
       --stop-at-cwd          Stop searching for Cargo.toml at current working directory
   -h, --help                 Print help
   -V, --version              Print version
